@@ -2,7 +2,6 @@ import numpy as np
 import pymc
 import matplotlib.pyplot as plt
 from scipy import stats
-from Fold_Interpolator import *
 import emcee
 def fourier_series_x_intercepts(C,QW,x):
     v = fourier_series2(C,QW,x)
@@ -112,8 +111,8 @@ class bayesian_fourier_series_model():
                                                        tau = 1. / self.wavelength_sd[x] ** 2) \
                                  for x in range(wavelength_number)])
         else:
-            qw = pymc.Container([pymc.distributions.TruncatedNormal('qw_%i' %x,mu=self.wavelengths[x],\
-                                                           tau = 1. / self.wavelengths[x]/3.,a=0,b=np.inf) \
+            qw = pymc.Container([pymc.distributions.Normal('qw_%i' %x,mu=self.wavelengths[x],\
+                                                           tau = 1. / self.wavelengths[x]/3.) \
                                                        for x in range(wavelength_number)])
 
 
@@ -596,56 +595,48 @@ class bayesian_fourier_series_figure():
                 p.append(p_)
         self.ax[x][y].plot(self.x,p,colour,alpha=0.8)
             
-    def plot_fold_heat_map(self, data,ii=0,jj=1):
-        results = []
+    def plot_fold_heat_map(self, intercept,ii=0,jj=1):
+        pr_ = []
         model = self.fourier_series_model
-        for i in range(len(self.fourier_series_model.S.trace('qw_0')[:])):
-            interpolator = FoldInterpolator([data],299,True)
-            interpolator.min_x = 0.0
-            interpolator.max_x = 300.0
-            interpolator.Subdivisions()
-            ij = 0
-            c = []
-            wl = []
-            wavelength_number = len(model.wavelengths)
-            c.append(model.S.trace('c_%i' %(ij))[i])
-            ij+=1
-            for _ in range (2*model.N*wavelength_number):
-                c.append(model.S.trace('c_%i' %(ij))[i])
-                ij+=1
-            for x in range(wavelength_number):
-                wl.append(model.S.trace('qw_%i' %x)[i])
-            interpolator.fold_model = FourierSeries(c,wl)#SimpleFold(FourierFold(c0,)
-            #interpolator.model_x = np.linspace(0,300,300)
-            interpolator.CoefficientCalculation()
-            #print np.array(interpolator.X_matrix).flatten()
-            results.append(np.array(interpolator.X_matrix).flatten())
-            #plt.plot(interpolator.model_x,interpolator.X_matrix)
-            #plt.print fig.fourier_series_model.S.trace('qw_0')[i]
-        #print interpolator.model_x
-        x_f = np.tile(np.array(interpolator.model_x),len(results))#10)#len(fig.fourier_series_model.S.trace('qw_0')[:]))
-        y_f = np.array(results).flatten()
-        #print x_f
-        v = np.array(results)
-        #print v.shape
+
+        for i in range(len(self.qw[0])):            
+            y = self.v[i]
+            gradient = np.tan(y*np.pi/180.)
+            #start all points at xmin = 0
+            step = self.x[1] - self.x[0]
+            p = []
+            for i in range(len(self.x)):
+                if not p:
+                    p.append(intercept)
+                    continue
+                else:
+                    if i == (len(self.x) - 1):
+                        p_ = p[len(p)-1] + ((gradient[i-1]+gradient[i]) / 2.) * step
+                    else:
+                        p_ = p[len(p)-1] + ((gradient[i-1]+gradient[i+1]) / 2.) * step
+                    p.append(p_)
+            pr_.append(p)
+                      
+        #plt.plot(self.x,p)
+        
+        
+        x_f = np.tile(self.x,len(self.qw[0]))
+        y_f = np.array(pr_).flatten()
         miny = min(y_f)
         maxy = max(y_f)
-        #print maxy
         miny*=1.2
         maxy*=1.2
-        #print 
-        vv = np.linspace(miny,maxy,360)
-        H = np.zeros((len((interpolator.model_x)),len(vv)))
-        for i in range(len(interpolator.model_x)):
-            for j in range(v.shape[0]):#len(v)):
-                vind = np.nonzero(np.abs(vv-v[j][i]) == np.min(np.abs(vv-v[j][i])))[0]
+        vv = np.linspace(miny,maxy,120)
+
+        H = np.zeros((len(self.x),len(vv)))
+        for i in range(len(self.x)):
+            for j in range(len(pr_)):
+                vind = np.nonzero(np.abs(vv-pr_[j][i]) == np.min(np.abs(vv-pr_[j][i])))[0]
                 H[i,vind[0]]+=1
-        xmin = 0#xmin
-        xmax = 300#xmax
-        H/=len(self.fourier_series_model.S.trace('qw_0')[:])
-        H[H==0.] = np.nan   
+        H/=len(self.qw[0])
+        H[H==0]=np.nan
         self.ax[jj][ii].imshow((np.rot90(H)), extent=[self.xmin,self.xmax, miny, maxy],cmap='viridis',aspect='auto')
-        self.ax[jj][ii].set_ylim(miny*1.3,maxy*1.3)
+        self.ax[jj][ii].set_ylim(min(model.reference_fold_y)*1.3,max(model.reference_fold_y)*1.3)
         #reference_fold_profile_x,
     def plot_traces(self):
         pymc.Matplot.plot(self.S)
